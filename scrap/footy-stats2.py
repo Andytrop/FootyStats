@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env.local file
 load_dotenv(dotenv_path='.env.local')
 
-# UR_TOKEN = '85a3aeda6ce843ce90263a5ac53206cc'
 
 token = os.environ.get('FOOTBALL_API_TOKEN')
 if not token:
