@@ -21,23 +21,19 @@ except ImportError:
     pass
 
 def load_api_token():
-    # Try to load from st.secrets first
-    token = st.secrets.get("FOOTBALL_API_TOKEN")
+    token = os.environ.get("FOOTBALL_API_TOKEN")
     if not token:
-        # Fallback to environment variable if available
-        token = os.environ.get("FOOTBALL_API_TOKEN")
+        try:
+            token = st.secrets.get("FOOTBALL_API_TOKEN")
+        except Exception:
+            token = None
     if not token:
-        st.error("FOOTBALL_API_TOKEN not found in secrets or environment!")
+        st.error("FOOTBALL_API_TOKEN not found in environment or st.secrets!")
         st.stop()
     return token
 
-# def load_api_token(dotenv_path='.env.local'):
-#     load_dotenv(dotenv_path=dotenv_path)
-#     token = os.environ.get('FOOTBALL_API_TOKEN')
-#     if not token:
-#         st.error("FOOTBALL_API_TOKEN environment variable not set")
-#         st.stop()
-#     return token
+
+
 
 def fetch_standings(token):
     url = "https://api.football-data.org/v4/competitions/PL/standings"
