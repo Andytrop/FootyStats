@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import os
 import streamlit.components.v1 as components
 
@@ -13,13 +13,31 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("images/Bens-Math-World.png", use_container_width=True)
 
-def load_api_token(dotenv_path='.env.local'):
-    load_dotenv(dotenv_path=dotenv_path)
-    token = os.environ.get('FOOTBALL_API_TOKEN')
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path='.env.local')
+except ImportError:
+    pass
+
+def load_api_token():
+    # Try to load from st.secrets first
+    token = st.secrets.get("FOOTBALL_API_TOKEN")
     if not token:
-        st.error("FOOTBALL_API_TOKEN environment variable not set")
+        # Fallback to environment variable if available
+        token = os.environ.get("FOOTBALL_API_TOKEN")
+    if not token:
+        st.error("FOOTBALL_API_TOKEN not found in secrets or environment!")
         st.stop()
     return token
+
+# def load_api_token(dotenv_path='.env.local'):
+#     load_dotenv(dotenv_path=dotenv_path)
+#     token = os.environ.get('FOOTBALL_API_TOKEN')
+#     if not token:
+#         st.error("FOOTBALL_API_TOKEN environment variable not set")
+#         st.stop()
+#     return token
 
 def fetch_standings(token):
     url = "https://api.football-data.org/v4/competitions/PL/standings"
