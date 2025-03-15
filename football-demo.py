@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-# from dotenv import load_dotenv
 import os
 import streamlit.components.v1 as components
 
@@ -12,7 +11,6 @@ st.set_page_config(layout="wide")
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.image("images/Bens-Math-World.png", use_container_width=True)
-
 
 try:
     from dotenv import load_dotenv
@@ -31,9 +29,6 @@ def load_api_token():
         st.error("FOOTBALL_API_TOKEN not found in environment or st.secrets!")
         st.stop()
     return token
-
-
-
 
 def fetch_standings(token):
     url = "https://api.football-data.org/v4/competitions/PL/standings"
@@ -67,6 +62,11 @@ def build_standings_df(total_table):
             xPts = Pts + (Pts / P) * (38 - P)
         else:
             xPts = Pts
+        # Compute maximum possible points (mPts)
+        if P:
+            mPts = Pts + 3 * (38 - P)
+        else:
+            mPts = Pts
         row = {
             "Pos": pos,
             "Team Name": team_name,
@@ -81,6 +81,7 @@ def build_standings_df(total_table):
             "GD": entry.get('goalDifference'),
             "Pts": Pts,
             "xPts": round(xPts, 1),
+            "mPts": mPts,
             "Form": entry.get('form')
         }
         rows.append(row)
@@ -104,7 +105,7 @@ def style_standings_table(df, selected_team):
         else:
             return ['background-color: #f2f2f2' if pos % 2 == 0 else 'background-color: white'] * len(row)
     
-    # Include xPts in the display, exclude Team Name and team_id
+    # Exclude "Team Name" and "team_id"; include both xPts and mPts
     display_columns = [col for col in df.columns if col not in ["Team Name", "team_id"]]
     display_df = df[display_columns]
     styled_df = (
@@ -116,7 +117,10 @@ def style_standings_table(df, selected_team):
             {'selector': 'thead th:first-child', 'props': [('display', 'none')]},
             {'selector': 'tbody th', 'props': [('display', 'none')]}
         ])
-        .format({'xPts': lambda x: f'<span style="color: grey;">{x}</span>'})
+        .format({
+            'xPts': lambda x: f'<span style="color: grey;">{x}</span>',
+            'mPts': lambda x: f'<span style="color: grey;">{x}</span>'
+        })
     )
     return styled_df
 
@@ -130,7 +134,8 @@ def get_team_details(team_id, token):
         st.error(f"Failed to fetch team details for team id {team_id}")
         return None
 
-def display_team_card(team_details):
+def display_team_card(team_details, standings_row):
+    # Unpack details
     area = team_details.get("area", {})
     team_name = team_details.get("name", "Unknown Team")
     short_name = team_details.get("shortName", "")
@@ -141,10 +146,49 @@ def display_team_card(team_details):
     club_colors = team_details.get("clubColors", "N/A")
     venue = team_details.get("venue", "N/A")
     running_competitions = team_details.get("runningCompetitions", [])
-    coach = team_details.get("coach", {})
-    squad = team_details.get("squad", [])
-    num_players = len(squad)
-
+    
+    # Build Projected Season Stats table (from standings_row)
+    P = standings_row["P"]
+    metrics = ["W", "D", "L", "GF", "GA", "GD", "Pts"]
+    projected_html = '<h2 style="margin-bottom:10px; font-size:20px;">Projected Season Stats</h2>'
+    projected_html += '<table style="width:100%; border-collapse: collapse;">'
+    projected_html += '<thead><tr style="background-color: #f2f2f2;"><th style="padding:8px; text-align:left;">Metric</th>'
+    projected_html += '<th style="padding:8px; text-align:left;">Current</th>'
+    projected_html += '<th style="padding:8px; text-align:left;">Expected</th></tr></thead><tbody>'
+    for metric in metrics:
+        current_val = standings_row[metric]
+        expected_val = current_val * (38 / P) if P else current_val
+        expected_val = round(expected_val, 1)
+        projected_html += f'<tr><td style="padding:8px; border-bottom:1px solid #ddd;">{metric}</td>'
+        projected_html += f'<td style="padding:8px; border-bottom:1px solid #ddd;">{current_val}</td>'
+        projected_html += f'<td style="padding:8px; border-bottom:1px solid #ddd;"><span style="color: grey;">{expected_val}</span></td></tr>'
+    projected_html += '</tbody></table>'
+    
+    # Build Team Details section (Address, Website, Founded, Club Colors, Venue, Area)
+    details_html = f"""
+      <h2 style="margin-bottom:10px; font-size:20px;">Team Details</h2>
+      <p><strong>Address:</strong> {address}</p>
+      <p><strong>Website:</strong> <a href="{website}" target="_blank">{website}</a></p>
+      <p><strong>Founded:</strong> {founded}</p>
+      <p><strong>Club Colors:</strong> {club_colors}</p>
+      <p><strong>Venue:</strong> {venue}</p>
+      <p><strong>Area:</strong> {area.get("name", "N/A")}</p>
+    """
+    
+    # Build Running Competitions section
+    competitions_html = '<h2 style="margin-bottom:10px; font-size:20px;">Running Competitions</h2><div style="display:flex; flex-wrap:wrap;">'
+    for comp in running_competitions:
+        comp_name = comp.get("name", "Unknown")
+        comp_emblem = comp.get("emblem", "")
+        competitions_html += f"""
+            <div style="margin-right:20px; text-align:center;">
+                <img src="{comp_emblem}" alt="{comp_name}" style="width:40px; height:40px;"><br>
+                <span style="font-size:12px;">{comp_name}</span>
+            </div>
+        """
+    competitions_html += "</div>"
+    
+    # Combine sections into one team card
     card_html = f"""
     <div style="
          width:100%;
@@ -154,6 +198,7 @@ def display_team_card(team_details):
          padding:20px;
          box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
          font-family: Arial, sans-serif;">
+      <!-- Header -->
       <div style="display:flex; align-items:center;">
           <img src="{crest}" alt="Team Crest" style="width:80px; height:80px; margin-right:20px; border-radius:50%;">
           <div>
@@ -162,119 +207,78 @@ def display_team_card(team_details):
           </div>
       </div>
       <hr style="margin:20px 0;">
-      <div style="display:flex; flex-wrap:wrap;">
-          <div style="flex:1; min-width:150px;">
-              <p><strong>Address:</strong> {address}</p>
-              <p><strong>Website:</strong> <a href="{website}" target="_blank">{website}</a></p>
-              <p><strong>Founded:</strong> {founded}</p>
-          </div>
-          <div style="flex:1; min-width:150px;">
-              <p><strong>Club Colors:</strong> {club_colors}</p>
-              <p><strong>Venue:</strong> {venue}</p>
-              <p><strong>Area:</strong> {area.get("name", "N/A")}</p>
-          </div>
-      </div>
+      {competitions_html}
       <hr style="margin:20px 0;">
-      <div>
-          <h2 style="margin-bottom:10px; font-size:20px;">Running Competitions</h2>
-          <div style="display:flex; flex-wrap:wrap;">
-    """
-    for comp in running_competitions:
-        comp_name = comp.get("name", "Unknown")
-        comp_emblem = comp.get("emblem", "")
-        card_html += f"""
-            <div style="margin-right:20px; text-align:center;">
-                <img src="{comp_emblem}" alt="{comp_name}" style="width:40px; height:40px;"><br>
-                <span style="font-size:12px;">{comp_name}</span>
-            </div>
-        """
-    card_html += """
-          </div>
-      </div>
+      {projected_html}
       <hr style="margin:20px 0;">
-      <div>
-          <h2 style="margin-bottom:10px; font-size:20px;">Coach</h2>
+      {details_html}
+    </div>
     """
+    components.html(card_html, height=950)
+
+def display_squad_card(team_details):
+    """
+    Display a squad details card that includes the Coach info and Squad summary,
+    followed by a detailed table of squad players.
+    """
+    squad = team_details.get("squad", [])
+    
+    # Build Coach and Squad Summary section
+    coach = team_details.get("coach", {})
+    coach_html = '<h2 style="margin-bottom:10px; font-size:20px;">Coach</h2>'
     if coach:
         coach_name = coach.get("name", "N/A")
         coach_nationality = coach.get("nationality", "N/A")
         contract = coach.get("contract", {})
         contract_period = f"{contract.get('start', '')} to {contract.get('until', '')}" if contract else "N/A"
-        card_html += f"""
+        coach_html += f"""
           <p><strong>Name:</strong> {coach_name}</p>
           <p><strong>Nationality:</strong> {coach_nationality}</p>
           <p><strong>Contract:</strong> {contract_period}</p>
         """
     else:
-        card_html += "<p>No coach information available.</p>"
+        coach_html += "<p>No coach information available.</p>"
+        
+    squad_summary = f'<h2 style="margin-bottom:10px; font-size:20px;">Squad</h2><p><strong>Number of players:</strong> {len(squad)}</p>'
     
-    card_html += f"""
-      </div>
-      <hr style="margin:20px 0;">
-      <div>
-          <h2 style="margin-bottom:10px; font-size:20px;">Squad</h2>
-          <p><strong>Number of players:</strong> {num_players}</p>
-      </div>
-    </div>
-    """
-    components.html(card_html, height=750)
-
-def display_expected_card(standings_row):
-    """
-    Display a card showing expected (projected) stats for the selected team.
-    The projections are computed as: expected_stat = current_stat * (38 / P)
-    for each metric in [W, D, L, GF, GA, GD, Pts].
-    """
-    P = standings_row["P"]
-    metrics = ["W", "D", "L", "GF", "GA", "GD", "Pts"]
-    html = """
-    <div style="
-         width:100%;
-         margin:0 0 20px 0;
-         padding:20px;
-         border:1px solid #ddd;
-         border-radius:10px;
-         box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-         font-family: Arial, sans-serif;">
-      <h2 style="margin-bottom:20px;">Projected Season Stats</h2>
-      <table style="width:100%; border-collapse: collapse;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-            <th style="padding:8px; text-align:left;">Metric</th>
-            <th style="padding:8px; text-align:left;">Current</th>
-            <th style="padding:8px; text-align:left;">Expected</th>
-          </tr>
-        </thead>
-        <tbody>
-    """
-    for metric in metrics:
-        current_val = standings_row[metric]
-        expected_val = current_val * (38 / P) if P else current_val
-        expected_val = round(expected_val, 1)
-        html += f"""
-          <tr>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{metric}</td>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{current_val}</td>
-            <td style="padding:8px; border-bottom:1px solid #ddd;"><span style="color: grey;">{expected_val}</span></td>
-          </tr>
-        """
-    html += """
-        </tbody>
-      </table>
-    </div>
-    """
-    components.html(html, height=400)
-
-def display_squad_card(team_details):
-    """
-    Display squad details as a nicely formatted HTML table (below the team card).
-    """
-    squad = team_details.get("squad", [])
+    # Build the detailed squad table
     if not squad:
-        st.write("No squad information available.")
-        return
-
-    html = """
+        detailed_html = "<p>No squad information available.</p>"
+    else:
+        detailed_html = """
+        <div style="margin-top:20px;">
+          <table style="width:100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background-color: #f2f2f2;">
+                <th style="padding:8px; text-align:left;">Name</th>
+                <th style="padding:8px; text-align:left;">Position</th>
+                <th style="padding:8px; text-align:left;">Date of Birth</th>
+                <th style="padding:8px; text-align:left;">Nationality</th>
+              </tr>
+            </thead>
+            <tbody>
+        """
+        for player in squad:
+            name = player.get("name", "N/A")
+            position = player.get("position", "N/A")
+            dob = player.get("dateOfBirth", "N/A")
+            nationality = player.get("nationality", "N/A")
+            detailed_html += f"""
+              <tr>
+                <td style="padding:8px; border-bottom:1px solid #ddd;">{name}</td>
+                <td style="padding:8px; border-bottom:1px solid #ddd;">{position}</td>
+                <td style="padding:8px; border-bottom:1px solid #ddd;">{dob}</td>
+                <td style="padding:8px; border-bottom:1px solid #ddd;">{nationality}</td>
+              </tr>
+            """
+        detailed_html += """
+            </tbody>
+          </table>
+        </div>
+        """
+    
+    # Combine Coach, Squad summary, and detailed table into one card
+    card_html = f"""
     <div style="
          width:100%;
          margin:0;
@@ -283,38 +287,15 @@ def display_squad_card(team_details):
          border-radius:10px;
          box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
          font-family: Arial, sans-serif;">
-      <h2 style="margin-bottom:20px;">Squad Details</h2>
-      <table style="width:100%; border-collapse: collapse;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-            <th style="padding:8px; text-align:left;">Name</th>
-            <th style="padding:8px; text-align:left;">Position</th>
-            <th style="padding:8px; text-align:left;">Date of Birth</th>
-            <th style="padding:8px; text-align:left;">Nationality</th>
-          </tr>
-        </thead>
-        <tbody>
-    """
-    for player in squad:
-        name = player.get("name", "N/A")
-        position = player.get("position", "N/A")
-        dob = player.get("dateOfBirth", "N/A")
-        nationality = player.get("nationality", "N/A")
-        html += f"""
-          <tr>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{name}</td>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{position}</td>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{dob}</td>
-            <td style="padding:8px; border-bottom:1px solid #ddd;">{nationality}</td>
-          </tr>
-        """
-    html += """
-        </tbody>
-      </table>
+      {coach_html}
+      <hr style="margin:20px 0;">
+      {squad_summary}
+      <hr style="margin:20px 0;">
+      {detailed_html}
     </div>
     """
     computed_height = max(600, 200 + len(squad) * 40)
-    components.html(html, height=computed_height)
+    components.html(card_html, height=computed_height)
 
 def main():
     token = load_api_token()
@@ -342,8 +323,7 @@ def main():
         st.markdown("### Team Information")
         team_details = get_team_details(team_id, token)
         if team_details:
-            display_team_card(team_details)
-            display_expected_card(team_row)
+            display_team_card(team_details, team_row)
             display_squad_card(team_details)
         else:
             st.error("Team details not found.")
